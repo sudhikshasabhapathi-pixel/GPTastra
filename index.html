@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Kisan Saathi — Smart Farming Companion</title>
+  <meta name="description" content="Kisan Saathi: crop planning, soil health, weather, markets, schemes and agricultural assistance.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">🌾</div><div><b>Kisan Saathi</b><span>Smart farming companion</span></div></div>
+    <nav id="nav">
+      <button class="nav active" data-page="dashboard">🏠 <span>Dashboard</span></button>
+      <button class="nav" data-page="crop">🌱 <span>Crop Planning</span></button>
+      <button class="nav" data-page="soil">🧪 <span>Soil Health</span></button>
+      <button class="nav" data-page="health">📷 <span>Crop Health</span></button>
+      <button class="nav" data-page="weather">🌦️ <span>Weather</span></button>
+      <button class="nav" data-page="markets">💰 <span>Markets</span></button>
+      <button class="nav" data-page="inputs">🛒 <span>Inputs</span></button>
+      <button class="nav" data-page="schemes">🏛️ <span>Schemes</span></button>
+      <button class="nav" data-page="insurance">🛡️ <span>Insurance</span></button>
+      <button class="nav" data-page="experts">👨‍🌾 <span>Experts</span></button>
+      <button class="nav" data-page="learning">🎓 <span>Learning</span></button>
+      <button class="nav" data-page="assistant">🤖 <span>AI Saathi</span></button>
+    </nav>
+    <div class="side-bottom"><button class="nav" data-page="profile">👤 <span>My Farm</span></button><button class="nav" data-page="settings">⚙️ <span>Settings</span></button></div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button id="menu" class="icon-btn">☰</button>
+      <div class="location">📍 <b>Siddipet, Telangana</b><span>Farm location</span></div>
+      <div class="top-actions">
+        <button class="icon-btn" id="voiceBtn" title="Voice">🎙️</button>
+        <button class="icon-btn" id="bell" title="Alerts">🔔<i></i></button>
+        <div class="avatar">RK</div>
+      </div>
+    </header>
+
+    <div id="content"></div>
+  </main>
+</div>
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
