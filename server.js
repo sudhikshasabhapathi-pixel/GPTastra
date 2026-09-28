@@ -1,6 +1,8 @@
 require("dotenv").config();
 const express=require("express"),cors=require("cors"),jwt=require("jsonwebtoken"),path=require("path"),fs=require("fs"),crypto=require("crypto");
 const Database=require("better-sqlite3");
+const multer=require("multer");
+const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:6*1024*1024}});
 const app=express();
 const PORT=process.env.PORT||8000, SECRET=process.env.JWT_SECRET||"dev-only-change-me";
 const GOOGLE_CLIENT_ID=process.env.GOOGLE_CLIENT_ID||"";
@@ -19,6 +21,8 @@ CREATE TABLE IF NOT EXISTS crops(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id IN
 CREATE TABLE IF NOT EXISTS soil_reports(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER,ph REAL,organic_carbon REAL,n REAL,p REAL,k REAL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER,title TEXT,body TEXT,read INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS ai_messages(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER,role TEXT NOT NULL,content TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS health_scans(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER,crop TEXT,image_name TEXT,result TEXT,confidence REAL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER,items_json TEXT NOT NULL,total REAL NOT NULL,status TEXT DEFAULT "PLACED",delivery_note TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
 const userCols=db.prepare("PRAGMA table_info(users)").all().map(x=>x.name);
 if(!userCols.includes("password_hash"))db.exec("ALTER TABLE users ADD COLUMN password_hash TEXT");
@@ -124,7 +128,19 @@ app.post("/api/soil/reports",auth,(req,res)=>{const r=db.prepare("INSERT INTO so
 app.get("/api/weather",(req,res)=>res.json({location:"Siddipet, Telangana",current:{temp:29,condition:"Partly cloudy"},forecast:[["Mon",29,26,"🌤️"],["Tue",27,24,"🌧️"],["Wed",28,24,"🌦️"],["Thu",30,25,"☀️"],["Fri",31,25,"☀️"]],rainProbability:65}));
 app.get("/api/markets",(req,res)=>res.json([{crop:"Cotton",market:"Siddipet",price:"₹7,250/q",trend:"up"},{crop:"Maize",market:"Siddipet",price:"₹2,180/q",trend:"steady"},{crop:"Red gram",market:"Sangareddy",price:"₹7,950/q",trend:"up"}]));
 app.get("/api/schemes",(req,res)=>res.json([{name:"PM-KISAN",type:"Central",description:"Income support for eligible farmer families."},{name:"Telangana Agriculture Services",type:"State",description:"State farmer support and agriculture services."}]));
-app.get("/api/inputs",(req,res)=>res.json([{name:"Cotton Seed",price:780,category:"Seed"},{name:"NPK Fertilizer",price:1250,category:"Fertilizer"},{name:"Neem-based Bio Input",price:320,category:"Bio input"}]));
+const INPUT_PRODUCTS=[
+{id:"seed-cotton",name:"Certified Cotton Seed Pack",price:780,category:"Seeds",unit:"1 pack",description:"Certified seed pack for cotton planning; verify variety suitability locally."},
+{id:"seed-maize",name:"Hybrid Maize Seed Pack",price:690,category:"Seeds",unit:"1 pack",description:"Seed pack for maize; choose a locally recommended variety."},
+{id:"soil-kit",name:"Soil Test Home Kit",price:299,category:"Soil",unit:"1 kit",description:"Basic field screening kit. Use a laboratory test for fertilizer decisions."},
+{id:"compost",name:"Organic Compost",price:420,category:"Soil amendment",unit:"25 kg",description:"Compost for improving organic matter; quality and analysis vary by supplier."},
+{id:"neem-cake",name:"Neem Cake Soil Amendment",price:520,category:"Bio input",unit:"25 kg",description:"Plant-based soil amendment. Use according to the package label."},
+{id:"biofert",name:"Microbial Biofertilizer",price:360,category:"Bio input",unit:"1 L",description:"Microbial input; compatibility and application depend on crop and product label."},
+{id:"gloves",name:"Reusable Farm Gloves",price:180,category:"Safety",unit:"1 pair",description:"Protective gloves for routine farm work."},
+{id:"drip-kit",name:"Drip Repair Starter Kit",price:450,category:"Irrigation",unit:"1 kit",description:"Basic connectors and repair parts for small drip systems."}
+];
+app.get("/api/inputs",(req,res)=>{const q=String(req.query.q||"").toLowerCase();const cat=String(req.query.category||"").toLowerCase();res.json(INPUT_PRODUCTS.filter(p=>(!q||[p.name,p.description,p.category].join(" ").toLowerCase().includes(q))&&(!cat||p.category.toLowerCase()===cat)));});
+app.post("/api/orders",auth,(req,res)=>{try{const items=Array.isArray(req.body.items)?req.body.items:[];if(!items.length)return res.status(400).json({error:"Cart is empty"});const safe=items.map(i=>{const p=INPUT_PRODUCTS.find(x=>x.id===i.id);if(!p)throw new Error("Unknown product");const qty=Math.max(1,Math.min(20,Number(i.qty)||1));return {id:p.id,name:p.name,price:p.price,qty}});const total=safe.reduce((s,x)=>s+x.price*x.qty,0);const note=String(req.body.delivery_note||"").trim().slice(0,300);const r=db.prepare("INSERT INTO orders(user_id,items_json,total,delivery_note) VALUES(?,?,?,?)").run(req.user.id,JSON.stringify(safe),total,note);res.status(201).json({orderId:r.lastInsertRowid,total,status:"PLACED",items:safe,note});}catch(e){res.status(400).json({error:e.message||"Could not place order"})}});
+app.get("/api/orders",auth,(req,res)=>res.json(db.prepare("SELECT id,total,status,delivery_note,created_at,items_json FROM orders WHERE user_id=? ORDER BY id DESC LIMIT 20").all(req.user.id).map(o=>({...o,items:JSON.parse(o.items_json)}))));
 app.get("/api/alerts",auth,(req,res)=>res.json(db.prepare("SELECT * FROM alerts WHERE user_id=? ORDER BY id DESC").all(req.user.id)));
 app.patch("/api/alerts/:id/read",auth,(req,res)=>{db.prepare("UPDATE alerts SET read=1 WHERE id=? AND user_id=?").run(req.params.id,req.user.id);res.json({ok:true})});
 function languageName(code){return ({en:"English",hi:"Hindi",te:"Telugu",ta:"Tamil",kn:"Kannada",ml:"Malayalam",bn:"Bengali",mr:"Marathi",gu:"Gujarati",pa:"Punjabi",or:"Odia",as:"Assamese",ur:"Urdu",sa:"Sanskrit",ne:"Nepali",sd:"Sindhi",kok:"Konkani",mai:"Maithili",doi:"Dogri",mni:"Meitei",sat:"Santali",bho:"Bhojpuri",raj:"Rajasthani"})[code]||"English"}\nfunction buildFarmContext(user){const farms=db.prepare("SELECT name,area,soil,irrigation,location FROM farms WHERE user_id=?").all(user.id);const crops=db.prepare("SELECT name,area,stage FROM crops WHERE user_id=?").all(user.id);const soil=db.prepare("SELECT ph,organic_carbon,n,p,k,created_at FROM soil_reports WHERE user_id=? ORDER BY id DESC LIMIT 3").all(user.id);return {farmer:{name:user.name,location:user.location,language:languageName(user.language||"en")},farms,crops,soil}}\napp.get("/api/ai/history",auth,(req,res)=>{res.json(db.prepare("SELECT role,content,created_at FROM ai_messages WHERE user_id=? ORDER BY id DESC LIMIT 30").all(req.user.id).reverse())});\napp.delete("/api/ai/history",auth,(req,res)=>{db.prepare("DELETE FROM ai_messages WHERE user_id=?").run(req.user.id);res.json({ok:true})});\nconst CROP_CATALOG={
@@ -189,6 +205,30 @@ app.post("/api/ai/ask",auth,async(req,res)=>{try{const q=String(req.body.questio
   db.prepare("INSERT INTO ai_messages(user_id,role,content) VALUES(?,?,?)").run(req.user.id,"assistant",answer);
   res.json({answer,question:q,language:lang,model:"Kisan Saathi Agriculture Copilot"});
 }catch(e){console.error(e);res.status(500).json({error:"AI assistant is temporarily unavailable."})}});
-app.post("/api/crop-health/scan",auth,(req,res)=>res.json({result:"Possible leaf spot",confidence:.86,note:"This is a demonstration workflow. Confirm with an agriculture expert before treatment."}));
+function localHealthResult(crop){
+const name=String(crop||"").toLowerCase();
+if(/cotton/.test(name))return {result:"Possible cotton leaf spot / fungal leaf disease",confidence:.62,why:"Leaf spots can have several causes and a photo alone cannot confirm the pathogen.",treatment:"Remove badly affected fallen plant material where practical, avoid prolonged leaf wetness, improve field airflow, and ask a local agriculture expert about a crop-approved fungicide if symptoms continue.",fertilizer:"Do not add extra nitrogen just because leaves look yellow. Use the latest soil test and crop-stage recommendation before changing nutrients.",precaution:"Do not mix or apply pesticides or fertilizers based only on this screening. Read the product label, use required protective equipment, keep products away from children and food, and follow local agricultural guidance."};
+if(/tomato|potato/.test(name))return {result:"Possible fungal/bacterial leaf-spot type symptom",confidence:.58,why:"Tomato and potato leaves can show similar spots from different diseases and stresses.",treatment:"Remove severely affected material where practical, avoid overhead irrigation when disease pressure is high, and seek crop-specific diagnosis before any chemical treatment.",fertilizer:"Check soil-test results and crop stage before fertilizer changes; avoid blanket dosing.",precaution:"Only use a crop-approved product exactly as its label and local authority require; do not mix products unless the label specifically permits it."};
+return {result:"Possible pest, disease or nutrient-stress symptom",confidence:.45,why:"Many crop problems look alike in photos, so the image is a screening aid rather than a confirmed diagnosis.",treatment:"Inspect several plants, photograph both healthy and affected leaves, check the underside of leaves and record recent irrigation/weather. Use an agriculture expert or lab for confirmation before treatment.",fertilizer:"Use soil-test and crop-stage information rather than symptom-only fertilizer decisions.",precaution:"Do not apply pesticide or fertilizer from this result alone. Follow the product label and local agricultural advice, and use appropriate protective equipment."};
+}
+app.post("/api/crop-health/scan",auth,upload.single("image"),async(req,res)=>{
+try{
+ if(!req.file)return res.status(400).json({error:"Please take or select a crop photo."});
+ const crop=String(req.body.crop||"").trim();
+ let result=null;
+ if(AI_API_KEY&&AI_MODEL){
+   const mime=req.file.mimetype||"image/jpeg";
+   const dataUrl="data:"+mime+";base64,"+req.file.buffer.toString("base64");
+   const prompt="You are a cautious Indian agriculture crop-health screening assistant. Analyze this crop image and return JSON only with keys result, confidence, why, treatment, fertilizer, precaution. Give a likely symptom/disease/pest category, never claim certainty, confidence 0 to 1, and keep treatment general and label/qualified-agronomist based. Do not provide unsafe pesticide mixing or dosing instructions. Mention that photo diagnosis may be wrong. Crop: "+(crop||"unknown");
+   const rr=await fetch(AI_API_URL,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+AI_API_KEY},body:JSON.stringify({model:AI_MODEL,input:[{role:"user",content:[{type:"input_text",text:prompt},{type:"input_image",image_url:dataUrl}]}]} )});
+   const d=await rr.json();
+   if(rr.ok&&d.output_text){try{result=JSON.parse(d.output_text.replace(/^\`\`\`json\s*/,"").replace(/\s*\`\`\`$/,""));}catch{}}
+ }
+ if(!result)result=localHealthResult(crop);
+ const confidence=Math.max(0,Math.min(1,Number(result.confidence)||0));
+ db.prepare("INSERT INTO health_scans(user_id,crop,image_name,result,confidence) VALUES(?,?,?,?,?)").run(req.user.id,crop,req.file.originalname,result.result,confidence);
+ res.json({...result,confidence,model:AI_API_KEY&&AI_MODEL?"vision-provider":"Kisan Saathi photo screening",photoReceived:true});
+}catch(e){console.error(e);res.status(500).json({error:"Crop photo analysis is temporarily unavailable."})}});
+app.get("/api/crop-health/history",auth,(req,res)=>res.json(db.prepare("SELECT id,crop,image_name,result,confidence,created_at FROM health_scans WHERE user_id=? ORDER BY id DESC LIMIT 20").all(req.user.id)));
 app.get("*",(req,res)=>res.sendFile(path.join(__dirname,"index.html")));
 app.listen(PORT,()=>console.log("Kisan Saathi running on "+PORT));
