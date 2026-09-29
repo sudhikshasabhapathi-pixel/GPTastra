@@ -32,11 +32,12 @@ function publicUser(u){return {id:u.id,name:u.name,email:u.email||null,phone:u.p
 function hashPassword(password){const salt=crypto.randomBytes(16).toString("hex");return salt+":"+crypto.scryptSync(password,salt,64).toString("hex")}
 function verifyPassword(password,stored){if(!stored||!stored.includes(":"))return false;const [salt,key]=stored.split(":");try{return crypto.timingSafeEqual(crypto.scryptSync(password,salt,64),Buffer.from(key,"hex"))}catch{return false}}
 let user=db.prepare("SELECT * FROM users WHERE phone=?").get("9999999999");
-if(!user){const r=db.prepare("INSERT INTO users(name,phone,email,location,language) VALUES(?,?,?,?,?)").run("Ramesh Kumar","9999999999","ramesh@example.com","Siddipet, Telangana","te");user=db.prepare("SELECT * FROM users WHERE id=?").get(r.lastInsertRowid);
+if(!user){const r=db.prepare("INSERT INTO users(name,phone,email,location,language,password_hash) VALUES(?,?,?,?,?,?)").run("Ramesh Kumar","9999999999","ramesh@example.com","Siddipet, Telangana","te",hashPassword("Kisan@123"));user=db.prepare("SELECT * FROM users WHERE id=?").get(r.lastInsertRowid);
 db.prepare("INSERT INTO farms(user_id,name,area,soil,irrigation,location) VALUES(?,?,?,?,?,?)").run(user.id,"Main Farm",4.5,"Black soil","Borewell",user.location);
 for(const c of [["Cotton",2,"Flowering"],["Maize",1.5,"Vegetative"],["Red gram",1,"Flowering"]]) db.prepare("INSERT INTO crops(user_id,name,area,stage) VALUES(?,?,?,?)").run(user.id,...c);
 db.prepare("INSERT INTO soil_reports(user_id,ph,organic_carbon,n,p,k) VALUES(?,?,?,?,?,?)").run(user.id,7.1,.62,71,83,52);
 for(const a of [["Rain expected tomorrow","Consider delaying irrigation."],["Cotton scouting","Check your cotton crop for pest symptoms."],["Soil potassium","Potassium is slightly low in your latest report."]]) db.prepare("INSERT INTO alerts(user_id,title,body) VALUES(?,?,?)").run(user.id,...a);}
+const demoPasswordHash=hashPassword("Kisan@123");db.prepare("UPDATE users SET password_hash=? WHERE lower(email)=? AND (password_hash IS NULL OR password_hash='')").run(demoPasswordHash,"ramesh@example.com");
 app.use(cors());app.use(express.json());app.use(express.urlencoded({extended:true}));app.use(express.static(path.join(__dirname)));
 function token(u){return jwt.sign({id:u.id},SECRET,{expiresIn:"7d"})}
 function auth(req,res,next){try{const h=req.headers.authorization||"";if(!h.startsWith("Bearer "))throw 0;req.user=db.prepare("SELECT * FROM users WHERE id=?").get(jwt.verify(h.slice(7),SECRET).id);if(!req.user)throw 0;next()}catch(e){res.status(401).json({error:"Authentication required"})}}
